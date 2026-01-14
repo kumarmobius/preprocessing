@@ -1,0 +1,126 @@
+name: Upload Profile to CDN v1
+inputs:
+  - {name: profile_json, type: Dataset, description: "Profile JSON file to upload"}
+  - {name: bearer_token, type: string, description: "Bearer token for CDN authentication"}
+  - {name: domain, type: String, description: "Upload service base domain"}
+  - {name: get_cdn, type: String, description: "Public CDN base domain"}
+
+outputs:
+  - {name: schema_json, type: String}
+
+implementation:
+  container:
+    image: gurpreetgandhi/nesy-factory:vtest4
+    command:
+      - sh
+      - -ec
+      - |
+        if ! command -v curl >/dev/null 2>&1; then
+          apt-get update >/dev/null && apt-get install -y curl >/dev/null
+        fi
+        exec "$0" "$@"
+      - python3
+      - -u
+      - -c
+      - |
+        import argparse
+        import subprocess
+        import json
+        import os
+        import time
+        import tempfile
+        import shutil
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--profile_json', required=True)
+        parser.add_argument('--bearer_token', required=True)
+        parser.add_argument('--domain', required=True)
+        parser.add_argument('--get_cdn', required=True)
+        parser.add_argument('--schema_json', required=True)
+
+        args = parser.parse_args()
+
+        def encode_special_chars(text):
+            return (
+                text.replace("$", "%24")
+                    .replace("(", "%28")
+                    .replace(")", "%29")
+                    .replace("[", "%5B")
+                    .replace("]", "%5D")
+                    .replace("{", "%7B")
+                    .replace("}", "%7D")
+            )
+
+        with open(args.bearer_token, "r") as f:
+            bearer_token = f.read().strip()
+
+        upload_url = (
+            f"{args.domain}"
+            "/mobius-content-service/v1.0/content/upload"
+            "?filePathAccess=private&filePath=%2Fbottle%2Flimka%2Fsoda%2F"
+        )
+
+        def sanitize_file(file_path):
+            name = os.path.basename(file_path)
+            safe = encode_special_chars(name)
+            if name != safe:
+                temp_path = os.path.join(tempfile.gettempdir(), safe)
+                shutil.copy2(file_path, temp_path)
+                return temp_path, temp_path
+            return file_path, None
+
+        def upload(file_path):
+            safe_path, temp = sanitize_file(file_path)
+            try:
+                result = subprocess.run(
+                    [
+                        "curl",
+                        "--location", upload_url,
+                        "--header", f"Authorization: Bearer {bearer_token}",
+                        "--form", f"file=@{safe_path}",
+                        "--fail",
+                        "--show-error",
+                    ],
+                    capture_output=True,
+                    check=True,
+                )
+                response = json.loads(result.stdout.decode())
+                rel = response.get("cdnUrl")
+                if not rel:
+                    raise RuntimeError(f"cdnUrl missing: {response}")
+
+                full_url = f"{args.get_cdn}{encode_special_chars(rel)}"
+                return full_url
+            finally:
+                if temp and os.path.exists(temp):
+                    os.remove(temp)
+
+        # Upload profile JSON
+        profile_cdn_url = upload(args.profile_json)
+
+        # Create schema with timestamp and CDN URL
+        schema = {
+            "timestamp": int(time.time()),
+            "postprocessing_metadata_cdn": profile_cdn_url
+        }
+
+        # Save schema JSON
+        os.makedirs(os.path.dirname(args.schema_json), exist_ok=True)
+        with open(args.schema_json, "w") as f:
+            json.dump(schema, f, indent=2)
+
+        print(f"Profile uploaded successfully")
+        print(f"CDN URL: {profile_cdn_url}")
+        print(f"Schema saved to: {args.schema_json}")
+
+    args:
+      - --profile_json
+      - {inputPath: profile_json}
+      - --bearer_token
+      - {inputPath: bearer_token}
+      - --domain
+      - {inputValue: domain}
+      - --get_cdn
+      - {inputValue: get_cdn}
+      - --schema_json
+      - {outputPath: schema_json}
