@@ -1,0 +1,175 @@
+name: Data loader Post-Processing
+inputs:
+  - {name: api_url, type: String, description: 'API URL to fetch JSON dataset'}
+  - {name: access_token, type: string, description: 'Bearer access token for API auth'}
+  - {name: use_column, type: String, optional: true, description: 'Comma-separated columns to keep'}
+  - {name: drop_columns, type: String, optional: true, description: 'Comma-separated columns to drop'}
+
+outputs:
+  - {name: dataset, type: Dataset}
+
+implementation:
+  container:
+    image: gurpreetgandhi/nesy-factory:vtest4
+    command:
+      - python3
+      - -u
+      - -c
+      - |
+        import argparse
+        import os
+        import pandas as pd
+        import numpy as np
+        import requests
+        import logging
+        from requests.adapters import HTTPAdapter
+        from urllib3.util.retry import Retry
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--api_url', required=True)
+        parser.add_argument('--access_token', required=True)
+        parser.add_argument('--use_column', default=None)
+        parser.add_argument('--drop_columns', default=None)
+        parser.add_argument('--dataset', required=True)
+
+        args = parser.parse_args()
+
+        with open(args.access_token, "r") as f:
+            access_token = f.read().strip()
+
+        logging.basicConfig(level=logging.INFO)
+        logger = logging.getLogger("data_loader")
+
+        session = requests.Session()
+        retries = Retry(
+            total=5,
+            backoff_factor=1,
+            status_forcelist=[500, 502, 503, 504],
+            allowed_methods=["POST"]
+        )
+        adapter = HTTPAdapter(max_retries=retries)
+        session.mount("http://", adapter)
+        session.mount("https://", adapter)
+
+        headers = {
+            "Content-Type": "application/json",
+            "Authorization": f"Bearer {access_token}"
+        }
+
+        payload = {
+            "dbType": "TIDB",
+            "entityId": "",
+            "entityIds": [],
+            "ownedOnly": False,
+            "projections": [],
+            "filter": {},
+            "startTime": 0,
+            "endTime": 0
+        }
+
+        def extract_records(body):
+            if isinstance(body, list):
+                return body
+            if isinstance(body, dict):
+                for key in ["data", "content", "records", "results", "items"]:
+                    if key in body and isinstance(body[key], list):
+                        return body[key]
+                return [body]
+            return []
+
+        def discover_page_metadata(body):
+            if not isinstance(body, dict):
+                return None, None, None
+            page = body.get("page", {})
+            return (
+                body.get("pageSize") or page.get("pageSize"),
+                body.get("totalPages") or page.get("totalPages"),
+                body.get("totalInstances") or page.get("totalInstances"),
+            )
+
+        base_url = args.api_url.rstrip('/')
+        separator = '&' if '?' in base_url else '?'
+        meta_url = f"{base_url}{separator}page=0&size=2000&showPageableMetaData=true"
+
+        logger.info("Discovering pagination metadata")
+        resp = session.post(meta_url, headers=headers, json=payload, timeout=30)
+        resp.raise_for_status()
+        body = resp.json()
+
+        page_size, total_pages, total_instances = discover_page_metadata(body)
+        records = extract_records(body)
+
+        if not page_size:
+            page_size = len(records)
+
+        if not total_pages and total_instances:
+            total_pages = (total_instances + page_size - 1) // page_size
+
+        all_records = []
+
+        if not total_pages:
+            logger.warning("No pagination metadata found; assuming single page")
+            all_records.extend(records)
+        else:
+            for page in range(total_pages):
+                page_url = f"{base_url}{separator}page={page}&size={page_size}&showPageableMetaData=true"
+                logger.info(f"Fetching page {page + 1}/{total_pages}")
+                r = session.post(page_url, headers=headers, json=payload, timeout=30)
+                r.raise_for_status()
+                all_records.extend(extract_records(r.json()))
+
+        if not all_records:
+            raise ValueError("No records retrieved from API")
+
+        df = pd.DataFrame(all_records)
+        logger.info(f"Fetched dataset shape: {df.shape}")
+
+        # === Column Control ===
+        original_columns = set(df.columns)
+
+        use_columns = (
+            [c.strip() for c in args.use_column.split(",") if c.strip()]
+            if args.use_column else None
+        )
+
+        drop_columns = (
+            [c.strip() for c in args.drop_columns.split(",") if c.strip()]
+            if args.drop_columns else []
+        )
+
+        if use_columns:
+            missing = [c for c in use_columns if c not in df.columns]
+            if missing:
+                raise ValueError(
+                    f"use_column contains missing columns: {missing}. "
+                    f"Available columns: {list(df.columns)}"
+                )
+            df = df[use_columns]
+            logger.info(f"use_column applied: {use_columns}")
+
+        if drop_columns:
+            existing = [c for c in drop_columns if c in df.columns]
+            df = df.drop(columns=existing, errors="ignore")
+            logger.info(f"drop_columns applied: {existing}")
+
+        logger.info(
+            f"Final columns ({len(df.columns)}): {list(df.columns)} | "
+            f"Removed: {list(original_columns - set(df.columns))}"
+        )
+
+        os.makedirs(os.path.dirname(args.dataset) or ".", exist_ok=True)
+        df.to_csv(args.dataset, index=False)
+
+        logger.info(f"Dataset saved successfully to CSV: {df.shape}")
+
+    args:
+      - --api_url
+      - {inputValue: api_url}
+      - --access_token
+      - {inputPath: access_token}
+      - --use_column
+      - {inputValue: use_column}
+      - --drop_columns
+      - {inputValue: drop_columns}
+      - --dataset
+      - {outputPath: dataset}
