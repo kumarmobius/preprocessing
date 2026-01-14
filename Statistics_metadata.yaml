@@ -76,13 +76,33 @@ implementation:
         logger = logging.getLogger("dataset_profiler")
 
         # Read dataset (support CSV and Parquet)
-        if args.dataset.endswith('.csv'):
-            df = pd.read_csv(args.dataset)
-        elif args.dataset.endswith('.parquet'):
-            df = pd.read_parquet(args.dataset)
-        else:
-            raise ValueError("Dataset must be CSV or Parquet format")
+        def load_parquet_df(path):
 
+            try:
+                print(f"[INFO] Trying to read as CSV: {path}")
+                return pd.read_csv(path)
+            except Exception as e_csv:
+                print(f"[WARN] CSV read failed: {e_csv}")
+              
+            try:
+                print(f"[INFO] Trying to read as Parquet: {path}")
+                return pd.read_parquet(path)
+            except Exception as e_parquet:
+                print(f"[WARN] Parquet read failed: {e_parquet}")
+        
+        
+            try:
+                print(f"[INFO] Trying to read as Excel: {path}")
+                return pd.read_excel(path)
+            except Exception as e_excel:
+                print(f"[WARN] Excel read failed: {e_excel}")
+        
+            raise ValueError(
+                f"Failed to read dataset '{path}'. "
+                f"Tried Parquet, CSV, and Excel formats."
+            )
+
+        df = load_parquet_df(args.dataset)
         logger.info(f"Loaded dataset with shape: {df.shape}")
 
         # Separate numeric and categorical columns
