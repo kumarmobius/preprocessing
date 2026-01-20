@@ -4,6 +4,7 @@ inputs:
   - {name: bearer_token, type: string, description: "Bearer token for CDN authentication"}
   - {name: domain, type: String, description: "Upload service base domain"}
   - {name: get_cdn, type: String, description: "Public CDN base domain"}
+  - {name: schema_key_name, type: String, description: "Key name for the CDN URL in the schema JSON"}
 
 outputs:
   - {name: schema_json, type: String}
@@ -36,6 +37,7 @@ implementation:
         parser.add_argument('--bearer_token', required=True)
         parser.add_argument('--domain', required=True)
         parser.add_argument('--get_cdn', required=True)
+        parser.add_argument('--schema_key_name', required=True)
         parser.add_argument('--schema_json', required=True)
 
         args = parser.parse_args()
@@ -98,10 +100,10 @@ implementation:
         # Upload profile JSON
         profile_cdn_url = upload(args.profile_json)
 
-        # Create schema with timestamp and CDN URL
+        # Create schema with timestamp and CDN URL using custom key name
         schema = {
             "timestamp": int(time.time()),
-            "postprocessing_metadata_cdn": profile_cdn_url
+            args.schema_key_name: profile_cdn_url
         }
 
         # Save schema JSON
@@ -111,6 +113,7 @@ implementation:
 
         print(f"Profile uploaded successfully")
         print(f"CDN URL: {profile_cdn_url}")
+        print(f"Schema key: {args.schema_key_name}")
         print(f"Schema saved to: {args.schema_json}")
 
     args:
@@ -122,5 +125,7 @@ implementation:
       - {inputValue: domain}
       - --get_cdn
       - {inputValue: get_cdn}
+      - --schema_key_name
+      - {inputValue: schema_key_name}
       - --schema_json
       - {outputPath: schema_json}
