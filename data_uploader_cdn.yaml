@@ -1,4 +1,4 @@
-name: Upload Dataset to CDN v1
+name: Upload Dataset to CDN v2
 inputs:
   - {name: training_data, type: Dataset, description: "Training data parquet file to upload"}
   - {name: bearer_token, type: string, description: "Bearer token for CDN authentication"}
@@ -6,7 +6,7 @@ inputs:
   - {name: get_cdn, type: String, description: "Public CDN base domain"}
 
 outputs:
-  - {name: schema_json, type: String}
+  - {name: cdn_url, type: String, description: "CDN URL of the uploaded file"}
 
 implementation:
   container:
@@ -28,7 +28,6 @@ implementation:
         import subprocess
         import json
         import os
-        import time
         import tempfile
         import shutil
         import pandas as pd
@@ -38,7 +37,7 @@ implementation:
         parser.add_argument('--bearer_token', required=True)
         parser.add_argument('--domain', required=True)
         parser.add_argument('--get_cdn', required=True)
-        parser.add_argument('--schema_json', required=True)
+        parser.add_argument('--cdn_url', required=True)
 
         args = parser.parse_args()
 
@@ -113,20 +112,13 @@ implementation:
         if os.path.exists(csv_path):
             os.remove(csv_path)
 
-        # Create schema with timestamp and CDN URL
-        schema = {
-            "timestamp": int(time.time()),
-            "postprocessing_metadata_cdn": training_data_cdn_url
-        }
-
-        # Save schema JSON
-        os.makedirs(os.path.dirname(args.schema_json), exist_ok=True)
-        with open(args.schema_json, "w") as f:
-            json.dump(schema, f, indent=2)
+        # Save CDN URL to output file
+        os.makedirs(os.path.dirname(args.cdn_url), exist_ok=True)
+        with open(args.cdn_url, "w") as f:
+            f.write(training_data_cdn_url)
 
         print(f"Training data uploaded successfully")
         print(f"CDN URL: {training_data_cdn_url}")
-        print(f"Schema saved to: {args.schema_json}")
 
     args:
       - --training_data
@@ -137,5 +129,5 @@ implementation:
       - {inputValue: domain}
       - --get_cdn
       - {inputValue: get_cdn}
-      - --schema_json
-      - {outputPath: schema_json}
+      - --cdn_url
+      - {outputPath: cdn_url}
