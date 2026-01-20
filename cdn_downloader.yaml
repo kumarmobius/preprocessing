@@ -1,37 +1,21 @@
-name: Cdn Downloader V1
+name: Cdn Downloader V2
 inputs:
-  - {name: training_data_cdn, type: String, description: "CDN URL to download training data parquet file"}
+  - {name: training_data_cdn, type: String, description: "CDN URL to download training data file"}
   - {name: bearer_token, type: string, description: "Bearer token for CDN authentication"}
-  - {name: domain, type: String, description: "Upload service base domain"}
-  - {name: get_cdn, type: String, description: "Public CDN base domain"}
 
 outputs:
-  - {name: schema_json, type: String}
+  - {name: training_data, type: Dataset, description: "Downloaded training data file"}
 
 implementation:
   container:
     image: gurpreetgandhi/nesy-factory:vtest4
     command:
-      - sh
-      - -ec
-      - |
-        if ! command -v curl >/dev/null 2>&1; then
-          apt-get update >/dev/null && apt-get install -y curl >/dev/null
-        fi
-        pip install -q pyarrow pandas requests
-        exec "$0" "$@"
       - python3
       - -u
       - -c
       - |
         import argparse
-        import subprocess
-        import json
         import os
-        import time
-        import tempfile
-        import shutil
-        import pandas as pd
         import requests
         from requests.adapters import HTTPAdapter
         try:
@@ -42,22 +26,9 @@ implementation:
         parser = argparse.ArgumentParser()
         parser.add_argument('--training_data_cdn', required=True)
         parser.add_argument('--bearer_token', required=True)
-        parser.add_argument('--domain', required=True)
-        parser.add_argument('--get_cdn', required=True)
-        parser.add_argument('--schema_json', required=True)
+        parser.add_argument('--training_data', required=True)
 
         args = parser.parse_args()
-
-        def encode_special_chars(text):
-            return (
-                text.replace("$", "%24")
-                    .replace("(", "%28")
-                    .replace(")", "%29")
-                    .replace("[", "%5B")
-                    .replace("]", "%5D")
-                    .replace("{", "%7B")
-                    .replace("}", "%7D")
-            )
 
         with open(args.bearer_token, "r") as f:
             bearer_token = f.read().strip()
@@ -90,97 +61,17 @@ implementation:
         response = session.get(args.training_data_cdn, headers=headers, timeout=120)
         response.raise_for_status()
         
-        # Save downloaded file temporarily
-        temp_parquet = os.path.join(tempfile.gettempdir(), "downloaded_training_data.parquet")
-        with open(temp_parquet, "wb") as f:
+        # Save downloaded file to output path
+        os.makedirs(os.path.dirname(args.training_data) or ".", exist_ok=True)
+        with open(args.training_data, "wb") as f:
             f.write(response.content)
-        print(f"File downloaded successfully")
-
-        # Read Parquet file and convert to CSV
-        print("Reading Parquet file...")
-        df = pd.read_parquet(temp_parquet)
         
-        # Create temporary CSV file
-        csv_path = os.path.join(tempfile.gettempdir(), "training_data.csv")
-        print(f"Converting to CSV with {len(df)} rows...")
-        df.to_csv(csv_path, index=False)
-        
-        # Clean up temporary parquet file
-        if os.path.exists(temp_parquet):
-            os.remove(temp_parquet)
-
-        upload_url = (
-            f"{args.domain}"
-            "/mobius-content-service/v1.0/content/upload"
-            "?filePathAccess=private&filePath=%2Fbottle%2Flimka%2Fsoda%2F"
-        )
-
-        def sanitize_file(file_path):
-            name = os.path.basename(file_path)
-            safe = encode_special_chars(name)
-            if name != safe:
-                temp_path = os.path.join(tempfile.gettempdir(), safe)
-                shutil.copy2(file_path, temp_path)
-                return temp_path, temp_path
-            return file_path, None
-
-        def upload(file_path):
-            safe_path, temp = sanitize_file(file_path)
-            try:
-                result = subprocess.run(
-                    [
-                        "curl",
-                        "--location", upload_url,
-                        "--header", f"Authorization: Bearer {bearer_token}",
-                        "--form", f"file=@{safe_path}",
-                        "--fail",
-                        "--show-error",
-                    ],
-                    capture_output=True,
-                    check=True,
-                )
-                response = json.loads(result.stdout.decode())
-                rel = response.get("cdnUrl")
-                if not rel:
-                    raise RuntimeError(f"cdnUrl missing: {response}")
-
-                full_url = f"{args.get_cdn}{encode_special_chars(rel)}"
-                return full_url
-            finally:
-                if temp and os.path.exists(temp):
-                    os.remove(temp)
-
-        # Upload CSV file
-        print("Uploading CSV to CDN...")
-        training_data_cdn_url = upload(csv_path)
-        
-        # Clean up temporary CSV file
-        if os.path.exists(csv_path):
-            os.remove(csv_path)
-
-        # Create schema with timestamp and CDN URL
-        schema = {
-            "timestamp": int(time.time()),
-            "postprocessing_metadata_cdn": training_data_cdn_url
-        }
-
-        # Save schema JSON
-        os.makedirs(os.path.dirname(args.schema_json), exist_ok=True)
-        with open(args.schema_json, "w") as f:
-            json.dump(schema, f, indent=2)
-
-        print(f"Training data uploaded successfully")
-        print(f"CDN URL: {training_data_cdn_url}")
-        print(f"Schema saved to: {args.schema_json}")
+        print(f"File downloaded successfully to: {args.training_data}")
 
     args:
       - --training_data_cdn
       - {inputValue: training_data_cdn}
       - --bearer_token
       - {inputPath: bearer_token}
-      - --domain
-      - {inputValue: domain}
-      - --get_cdn
-      - {inputValue: get_cdn}
-      - --schema_json
-      - {outputPath: schema_json}
+      - --training_data
+      - {outputPath: training_data}
