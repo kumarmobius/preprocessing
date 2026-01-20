@@ -1,0 +1,368 @@
+name: Raw Dataset Profiler V1
+inputs:
+  - {name: dataset, type: Dataset, description: 'Input dataset to profile'}
+  
+  # Numerical: Descriptive Statistics
+  - {name: compute_count, type: String, default: "true", description: 'Count non-null values'}
+  - {name: compute_mean, type: String, default: "true", description: 'Compute mean'}
+  - {name: compute_median, type: String, default: "true", description: 'Compute median'}
+  - {name: compute_mode, type: String, default: "true", description: 'Compute mode'}
+  - {name: compute_min, type: String, default: "true", description: 'Compute minimum'}
+  - {name: compute_max, type: String, default: "true", description: 'Compute maximum'}
+  - {name: compute_range, type: String, default: "true", description: 'Compute range'}
+  - {name: compute_std, type: String, default: "true", description: 'Compute standard deviation'}
+  - {name: compute_variance, type: String, default: "true", description: 'Compute variance'}
+  - {name: compute_percentile_1, type: String, default: "false", description: 'Compute 1st percentile'}
+  - {name: compute_percentile_5, type: String, default: "false", description: 'Compute 5th percentile'}
+  - {name: compute_percentile_25, type: String, default: "true", description: 'Compute 25th percentile'}
+  - {name: compute_percentile_50, type: String, default: "true", description: 'Compute 50th percentile (median)'}
+  - {name: compute_percentile_75, type: String, default: "true", description: 'Compute 75th percentile'}
+  - {name: compute_percentile_95, type: String, default: "false", description: 'Compute 95th percentile'}
+  - {name: compute_percentile_99, type: String, default: "false", description: 'Compute 99th percentile'}
+  - {name: compute_iqr, type: String, default: "true", description: 'Compute Interquartile Range'}
+  
+  # Numerical: Distribution Analysis
+  - {name: compute_skewness, type: String, default: "true", description: 'Compute skewness'}
+  - {name: compute_kurtosis, type: String, default: "true", description: 'Compute kurtosis'}
+  - {name: compute_cv, type: String, default: "true", description: 'Compute Coefficient of Variation'}
+  
+  # Numerical: Data Quality Metrics
+  - {name: compute_missing, type: String, default: "true", description: 'Compute missing count and percentage'}
+  - {name: compute_zeros, type: String, default: "true", description: 'Compute zero count and percentage'}
+  - {name: compute_negatives, type: String, default: "true", description: 'Compute negative count and percentage'}
+  
+  # Numerical: Unique Value Analysis
+  - {name: compute_unique, type: String, default: "true", description: 'Compute unique count and percentage'}
+  - {name: compute_is_constant, type: String, default: "true", description: 'Check if all values are same'}
+  - {name: compute_is_unique, type: String, default: "true", description: 'Check if all values are different'}
+
+outputs:
+  - {name: profile_json, type: Dataset, description: 'Complete profile in JSON format'}
+
+implementation:
+  container:
+    image: gurpreetgandhi/nesy-factory:vtest4
+    command:
+      - python3
+      - -u
+      - -c
+      - |
+        import argparse
+        import os
+        import pandas as pd
+        import numpy as np
+        import json
+        import logging
+        from datetime import datetime
+        from scipy import stats
+
+        parser = argparse.ArgumentParser()
+        parser.add_argument('--dataset', required=True)
+        
+        # Descriptive Statistics
+        parser.add_argument('--compute_count', type=lambda x: x.lower() == 'true', default=True)
+        parser.add_argument('--compute_mean', type=lambda x: x.lower() == 'true', default=True)
+        parser.add_argument('--compute_median', type=lambda x: x.lower() == 'true', default=True)
+        parser.add_argument('--compute_mode', type=lambda x: x.lower() == 'true', default=True)
+        parser.add_argument('--compute_min', type=lambda x: x.lower() == 'true', default=True)
+        parser.add_argument('--compute_max', type=lambda x: x.lower() == 'true', default=True)
+        parser.add_argument('--compute_range', type=lambda x: x.lower() == 'true', default=True)
+        parser.add_argument('--compute_std', type=lambda x: x.lower() == 'true', default=True)
+        parser.add_argument('--compute_variance', type=lambda x: x.lower() == 'true', default=True)
+        parser.add_argument('--compute_percentile_1', type=lambda x: x.lower() == 'true', default=False)
+        parser.add_argument('--compute_percentile_5', type=lambda x: x.lower() == 'true', default=False)
+        parser.add_argument('--compute_percentile_25', type=lambda x: x.lower() == 'true', default=True)
+        parser.add_argument('--compute_percentile_50', type=lambda x: x.lower() == 'true', default=True)
+        parser.add_argument('--compute_percentile_75', type=lambda x: x.lower() == 'true', default=True)
+        parser.add_argument('--compute_percentile_95', type=lambda x: x.lower() == 'true', default=False)
+        parser.add_argument('--compute_percentile_99', type=lambda x: x.lower() == 'true', default=False)
+        parser.add_argument('--compute_iqr', type=lambda x: x.lower() == 'true', default=True)
+        
+        # Distribution Analysis
+        parser.add_argument('--compute_skewness', type=lambda x: x.lower() == 'true', default=True)
+        parser.add_argument('--compute_kurtosis', type=lambda x: x.lower() == 'true', default=True)
+        parser.add_argument('--compute_cv', type=lambda x: x.lower() == 'true', default=True)
+        
+        # Data Quality Metrics
+        parser.add_argument('--compute_missing', type=lambda x: x.lower() == 'true', default=True)
+        parser.add_argument('--compute_zeros', type=lambda x: x.lower() == 'true', default=True)
+        parser.add_argument('--compute_negatives', type=lambda x: x.lower() == 'true', default=True)
+        
+        # Unique Value Analysis
+        parser.add_argument('--compute_unique', type=lambda x: x.lower() == 'true', default=True)
+        parser.add_argument('--compute_is_constant', type=lambda x: x.lower() == 'true', default=True)
+        parser.add_argument('--compute_is_unique', type=lambda x: x.lower() == 'true', default=True)
+        
+        parser.add_argument('--profile_json', required=True)
+
+        args = parser.parse_args()
+
+        logging.basicConfig(level=logging.INFO)
+        logger = logging.getLogger("dataset_profiler")
+
+        # Read dataset (support CSV, Parquet, Excel)
+        def load_dataset(path):
+            try:
+                print(f"[INFO] Trying to read as CSV: {path}")
+                return pd.read_csv(path)
+            except Exception as e_csv:
+                print(f"[WARN] CSV read failed: {e_csv}")
+              
+            try:
+                print(f"[INFO] Trying to read as Parquet: {path}")
+                return pd.read_parquet(path)
+            except Exception as e_parquet:
+                print(f"[WARN] Parquet read failed: {e_parquet}")
+        
+            try:
+                print(f"[INFO] Trying to read as Excel: {path}")
+                return pd.read_excel(path)
+            except Exception as e_excel:
+                print(f"[WARN] Excel read failed: {e_excel}")
+        
+            raise ValueError(
+                f"Failed to read dataset '{path}'. "
+                f"Tried CSV, Parquet, and Excel formats."
+            )
+
+        df = load_dataset(args.dataset)
+        logger.info(f"Loaded dataset with shape: {df.shape}")
+
+        # Separate numeric and categorical columns
+        numeric_cols = df.select_dtypes(include=[np.number]).columns.tolist()
+        categorical_cols = df.select_dtypes(exclude=[np.number]).columns.tolist()
+
+        logger.info(f"Numeric columns: {len(numeric_cols)}, Categorical columns: {len(categorical_cols)}")
+
+        # Initialize profile dictionary
+        profile = {
+            "metadata": {
+                "timestamp": datetime.now().isoformat(),
+                "total_rows": int(df.shape[0]),
+                "total_columns": int(df.shape[1]),
+                "numeric_columns": len(numeric_cols),
+                "categorical_columns": len(categorical_cols),
+                "column_names": list(df.columns),
+                "numeric_column_names": numeric_cols,
+                "categorical_column_names": categorical_cols,
+                "memory_usage_bytes": int(df.memory_usage(deep=True).sum())
+            },
+            "columns": {}
+        }
+
+        # Process each column
+        for col in df.columns:
+            col_stats = {
+                "dtype": str(df[col].dtype),
+                "is_numeric": col in numeric_cols
+            }
+
+            total_count = len(df[col])
+
+            # NUMERIC COLUMN STATISTICS
+            if col in numeric_cols:
+                col_data = df[col]
+                col_data_clean = col_data.dropna()
+                
+                # 1. Descriptive Statistics
+                if args.compute_count:
+                    col_stats["count"] = int(col_data.count())
+                
+                if args.compute_mean and len(col_data_clean) > 0:
+                    col_stats["mean"] = float(col_data_clean.mean())
+                
+                if args.compute_median and len(col_data_clean) > 0:
+                    col_stats["median"] = float(col_data_clean.median())
+                
+                if args.compute_mode and len(col_data_clean) > 0:
+                    mode_val = col_data_clean.mode()
+                    col_stats["mode"] = float(mode_val[0]) if len(mode_val) > 0 else None
+                
+                if args.compute_min and len(col_data_clean) > 0:
+                    col_stats["min"] = float(col_data_clean.min())
+                
+                if args.compute_max and len(col_data_clean) > 0:
+                    col_stats["max"] = float(col_data_clean.max())
+                
+                if args.compute_range and len(col_data_clean) > 0:
+                    col_stats["range"] = float(col_data_clean.max() - col_data_clean.min())
+                
+                if args.compute_std and len(col_data_clean) > 0:
+                    col_stats["std"] = float(col_data_clean.std())
+                
+                if args.compute_variance and len(col_data_clean) > 0:
+                    col_stats["variance"] = float(col_data_clean.var())
+                
+                # Percentiles
+                if args.compute_percentile_1 and len(col_data_clean) > 0:
+                    col_stats["percentile_1"] = float(col_data_clean.quantile(0.01))
+                
+                if args.compute_percentile_5 and len(col_data_clean) > 0:
+                    col_stats["percentile_5"] = float(col_data_clean.quantile(0.05))
+                
+                if args.compute_percentile_25 and len(col_data_clean) > 0:
+                    col_stats["percentile_25"] = float(col_data_clean.quantile(0.25))
+                
+                if args.compute_percentile_50 and len(col_data_clean) > 0:
+                    col_stats["percentile_50"] = float(col_data_clean.quantile(0.50))
+                
+                if args.compute_percentile_75 and len(col_data_clean) > 0:
+                    col_stats["percentile_75"] = float(col_data_clean.quantile(0.75))
+                
+                if args.compute_percentile_95 and len(col_data_clean) > 0:
+                    col_stats["percentile_95"] = float(col_data_clean.quantile(0.95))
+                
+                if args.compute_percentile_99 and len(col_data_clean) > 0:
+                    col_stats["percentile_99"] = float(col_data_clean.quantile(0.99))
+                
+                if args.compute_iqr and len(col_data_clean) > 0:
+                    Q1 = col_data_clean.quantile(0.25)
+                    Q3 = col_data_clean.quantile(0.75)
+                    col_stats["iqr"] = float(Q3 - Q1)
+                
+                # 2. Distribution Analysis
+                if args.compute_skewness and len(col_data_clean) > 0:
+                    col_stats["skewness"] = float(col_data_clean.skew())
+                
+                if args.compute_kurtosis and len(col_data_clean) > 0:
+                    col_stats["kurtosis"] = float(col_data_clean.kurtosis())
+                
+                if args.compute_cv and len(col_data_clean) > 0:
+                    mean_val = col_data_clean.mean()
+                    std_val = col_data_clean.std()
+                    if mean_val != 0:
+                        col_stats["coefficient_of_variation"] = float(std_val / mean_val)
+                    else:
+                        col_stats["coefficient_of_variation"] = None
+                
+                # 3. Data Quality Metrics
+                if args.compute_missing:
+                    missing_count = int(col_data.isna().sum())
+                    col_stats["missing_count"] = missing_count
+                    col_stats["missing_percentage"] = float((missing_count / total_count) * 100) if total_count > 0 else 0.0
+                
+                if args.compute_zeros and len(col_data_clean) > 0:
+                    zero_count = int((col_data_clean == 0).sum())
+                    col_stats["zero_count"] = zero_count
+                    col_stats["zero_percentage"] = float((zero_count / total_count) * 100) if total_count > 0 else 0.0
+                
+                if args.compute_negatives and len(col_data_clean) > 0:
+                    negative_count = int((col_data_clean < 0).sum())
+                    col_stats["negative_count"] = negative_count
+                    col_stats["negative_percentage"] = float((negative_count / total_count) * 100) if total_count > 0 else 0.0
+                
+                # 4. Unique Value Analysis
+                if args.compute_unique:
+                    unique_count = int(col_data_clean.nunique())
+                    col_stats["unique_count"] = unique_count
+                    col_stats["unique_percentage"] = float((unique_count / total_count) * 100) if total_count > 0 else 0.0
+                
+                if args.compute_is_constant:
+                    col_stats["is_constant"] = bool(col_data_clean.nunique() <= 1)
+                
+                if args.compute_is_unique:
+                    col_stats["is_unique"] = bool(col_data_clean.nunique() == len(col_data_clean))
+
+            # CATEGORICAL COLUMN STATISTICS
+            else:
+                col_data = df[col]
+                
+                # Basic stats
+                if args.compute_count:
+                    col_stats["count"] = int(col_data.count())
+                
+                if args.compute_missing:
+                    missing_count = int(col_data.isna().sum())
+                    col_stats["missing_count"] = missing_count
+                    col_stats["missing_percentage"] = float((missing_count / total_count) * 100) if total_count > 0 else 0.0
+                
+                if args.compute_unique:
+                    unique_count = int(col_data.nunique())
+                    col_stats["unique_count"] = unique_count
+                    col_stats["unique_percentage"] = float((unique_count / total_count) * 100) if total_count > 0 else 0.0
+                
+                if args.compute_mode and len(col_data.dropna()) > 0:
+                    mode_val = col_data.mode()
+                    if len(mode_val) > 0:
+                        col_stats["mode"] = str(mode_val[0])
+                        mode_count = int((col_data == mode_val[0]).sum())
+                        col_stats["mode_frequency"] = mode_count
+                        col_stats["mode_percentage"] = float((mode_count / total_count) * 100) if total_count > 0 else 0.0
+                    else:
+                        col_stats["mode"] = None
+                
+                if args.compute_is_constant:
+                    col_stats["is_constant"] = bool(col_data.nunique() <= 1)
+                
+                if args.compute_is_unique:
+                    col_stats["is_unique"] = bool(col_data.nunique() == len(col_data.dropna()))
+                
+                col_stats["has_missing"] = bool(col_data.isna().any())
+
+            profile["columns"][col] = col_stats
+
+        # Save profile as JSON
+        os.makedirs(os.path.dirname(args.profile_json) or ".", exist_ok=True)
+        with open(args.profile_json, 'w') as f:
+            json.dump(profile, f, indent=2)
+
+        logger.info(f"Profile saved successfully to: {args.profile_json}")
+        logger.info(f"Total columns profiled: {len(profile['columns'])}")
+
+    args:
+      - --dataset
+      - {inputPath: dataset}
+      - --compute_count
+      - {inputValue: compute_count}
+      - --compute_mean
+      - {inputValue: compute_mean}
+      - --compute_median
+      - {inputValue: compute_median}
+      - --compute_mode
+      - {inputValue: compute_mode}
+      - --compute_min
+      - {inputValue: compute_min}
+      - --compute_max
+      - {inputValue: compute_max}
+      - --compute_range
+      - {inputValue: compute_range}
+      - --compute_std
+      - {inputValue: compute_std}
+      - --compute_variance
+      - {inputValue: compute_variance}
+      - --compute_percentile_1
+      - {inputValue: compute_percentile_1}
+      - --compute_percentile_5
+      - {inputValue: compute_percentile_5}
+      - --compute_percentile_25
+      - {inputValue: compute_percentile_25}
+      - --compute_percentile_50
+      - {inputValue: compute_percentile_50}
+      - --compute_percentile_75
+      - {inputValue: compute_percentile_75}
+      - --compute_percentile_95
+      - {inputValue: compute_percentile_95}
+      - --compute_percentile_99
+      - {inputValue: compute_percentile_99}
+      - --compute_iqr
+      - {inputValue: compute_iqr}
+      - --compute_skewness
+      - {inputValue: compute_skewness}
+      - --compute_kurtosis
+      - {inputValue: compute_kurtosis}
+      - --compute_cv
+      - {inputValue: compute_cv}
+      - --compute_missing
+      - {inputValue: compute_missing}
+      - --compute_zeros
+      - {inputValue: compute_zeros}
+      - --compute_negatives
+      - {inputValue: compute_negatives}
+      - --compute_unique
+      - {inputValue: compute_unique}
+      - --compute_is_constant
+      - {inputValue: compute_is_constant}
+      - --compute_is_unique
+      - {inputValue: compute_is_unique}
+      - --profile_json
+      - {outputPath: profile_json}
