@@ -1,4 +1,4 @@
-name: Data Profiling Trigger v1
+name: Data Profiling Trigger v2
 inputs:
   - {name: bearer_token, type: string, description: "Path to file containing bearer token"}
   - {name: domain, type: String, description: "Base domain, e.g. https://ig.gov-cloud.ai"}
@@ -17,19 +17,10 @@ inputs:
   - {name: compute_percentile_25, type: String, default: "true", description: 'Compute 25th percentile'}
   - {name: compute_percentile_75, type: String, default: "true", description: 'Compute 75th percentile'}
   - {name: compute_percentile_90, type: String, default: "false", description: 'Compute 90th percentile'}
-  - {name: compute_percentile_95, type: String, default: "false", description: 'Compute 95th percentile'}
-  - {name: compute_percentile_99, type: String, default: "false", description: 'Compute 99th percentile'}
   - {name: compute_variance, type: String, default: "true", description: 'Compute variance'}
   - {name: compute_range, type: String, default: "true", description: 'Compute range (max - min)'}
-  - {name: compute_iqr, type: String, default: "true", description: 'Compute interquartile range (Q3 - Q1)'}
   - {name: compute_skewness, type: String, default: "false", description: 'Compute skewness'}
   - {name: compute_kurtosis, type: String, default: "false", description: 'Compute kurtosis'}
-  - {name: compute_missing, type: String, default: "true", description: 'Compute missing value counts'}
-  - {name: compute_missing_percent, type: String, default: "true", description: 'Compute missing percentage'}
-  - {name: compute_unique, type: String, default: "true", description: 'Compute unique value counts'}
-  - {name: compute_unique_percent, type: String, default: "true", description: 'Compute unique percentage'}
-  - {name: compute_duplicates, type: String, default: "true", description: 'Compute duplicate row counts'}
-  - {name: compute_outliers, type: String, default: "false", description: 'Compute outlier counts using IQR method'}
 
 outputs:
   - {name: trigger_response, type: String, description: "Raw response from pipeline trigger API"}
@@ -67,19 +58,10 @@ implementation:
         parser.add_argument('--compute_percentile_25', default="true")
         parser.add_argument('--compute_percentile_75', default="true")
         parser.add_argument('--compute_percentile_90', default="false")
-        parser.add_argument('--compute_percentile_95', default="false")
-        parser.add_argument('--compute_percentile_99', default="false")
         parser.add_argument('--compute_variance', default="true")
         parser.add_argument('--compute_range', default="true")
-        parser.add_argument('--compute_iqr', default="true")
         parser.add_argument('--compute_skewness', default="false")
         parser.add_argument('--compute_kurtosis', default="false")
-        parser.add_argument('--compute_missing', default="true")
-        parser.add_argument('--compute_missing_percent', default="true")
-        parser.add_argument('--compute_unique', default="true")
-        parser.add_argument('--compute_unique_percent', default="true")
-        parser.add_argument('--compute_duplicates', default="true")
-        parser.add_argument('--compute_outliers', default="false")
         parser.add_argument('--trigger_response', required=True)
         args = parser.parse_args()
 
@@ -125,32 +107,14 @@ implementation:
             parameters["compute_percentile_75"] = args.compute_percentile_75
         if args.compute_percentile_90:
             parameters["compute_percentile_90"] = args.compute_percentile_90
-        if args.compute_percentile_95:
-            parameters["compute_percentile_95"] = args.compute_percentile_95
-        if args.compute_percentile_99:
-            parameters["compute_percentile_99"] = args.compute_percentile_99
         if args.compute_variance:
             parameters["compute_variance"] = args.compute_variance
         if args.compute_range:
             parameters["compute_range"] = args.compute_range
-        if args.compute_iqr:
-            parameters["compute_iqr"] = args.compute_iqr
         if args.compute_skewness:
             parameters["compute_skewness"] = args.compute_skewness
         if args.compute_kurtosis:
             parameters["compute_kurtosis"] = args.compute_kurtosis
-        if args.compute_missing:
-            parameters["compute_missing"] = args.compute_missing
-        if args.compute_missing_percent:
-            parameters["compute_missing_percent"] = args.compute_missing_percent
-        if args.compute_unique:
-            parameters["compute_unique"] = args.compute_unique
-        if args.compute_unique_percent:
-            parameters["compute_unique_percent"] = args.compute_unique_percent
-        if args.compute_duplicates:
-            parameters["compute_duplicates"] = args.compute_duplicates
-        if args.compute_outliers:
-            parameters["compute_outliers"] = args.compute_outliers
 
         # Build payload
         payload = {
@@ -266,31 +230,13 @@ implementation:
       - {inputValue: compute_percentile_75}
       - --compute_percentile_90
       - {inputValue: compute_percentile_90}
-      - --compute_percentile_95
-      - {inputValue: compute_percentile_95}
-      - --compute_percentile_99
-      - {inputValue: compute_percentile_99}
       - --compute_variance
       - {inputValue: compute_variance}
       - --compute_range
       - {inputValue: compute_range}
-      - --compute_iqr
-      - {inputValue: compute_iqr}
       - --compute_skewness
       - {inputValue: compute_skewness}
       - --compute_kurtosis
       - {inputValue: compute_kurtosis}
-      - --compute_missing
-      - {inputValue: compute_missing}
-      - --compute_missing_percent
-      - {inputValue: compute_missing_percent}
-      - --compute_unique
-      - {inputValue: compute_unique}
-      - --compute_unique_percent
-      - {inputValue: compute_unique_percent}
-      - --compute_duplicates
-      - {inputValue: compute_duplicates}
-      - --compute_outliers
-      - {inputValue: compute_outliers}
       - --trigger_response
       - {outputPath: trigger_response}
