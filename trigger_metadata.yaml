@@ -1,0 +1,296 @@
+name: Data Profiling Trigger v1
+inputs:
+  - {name: bearer_token, type: string, description: "Path to file containing bearer token"}
+  - {name: domain, type: String, description: "Base domain, e.g. https://ig.gov-cloud.ai"}
+  - {name: pipeline_id, type: String, description: "Pipeline ID to trigger"}
+  - {name: experiment_id, type: String, description: "Experiment ID"}
+  - {name: training_data_cdn, type: String, description: "CDN URL for training data"}
+  - {name: model_id, type: String, optional: true, default: ""}
+  - {name: project_id, type: String, optional: true, default: ""}
+  - {name: execution_id, type: Integer, optional: true}
+  - {name: compute_mean, type: String, default: "true", description: 'Compute mean for numeric columns'}
+  - {name: compute_std, type: String, default: "true", description: 'Compute standard deviation'}
+  - {name: compute_min, type: String, default: "true", description: 'Compute minimum values'}
+  - {name: compute_max, type: String, default: "true", description: 'Compute maximum values'}
+  - {name: compute_median, type: String, default: "true", description: 'Compute median values'}
+  - {name: compute_mode, type: String, default: "false", description: 'Compute mode values'}
+  - {name: compute_percentile_25, type: String, default: "true", description: 'Compute 25th percentile'}
+  - {name: compute_percentile_75, type: String, default: "true", description: 'Compute 75th percentile'}
+  - {name: compute_percentile_90, type: String, default: "false", description: 'Compute 90th percentile'}
+  - {name: compute_percentile_95, type: String, default: "false", description: 'Compute 95th percentile'}
+  - {name: compute_percentile_99, type: String, default: "false", description: 'Compute 99th percentile'}
+  - {name: compute_variance, type: String, default: "true", description: 'Compute variance'}
+  - {name: compute_range, type: String, default: "true", description: 'Compute range (max - min)'}
+  - {name: compute_iqr, type: String, default: "true", description: 'Compute interquartile range (Q3 - Q1)'}
+  - {name: compute_skewness, type: String, default: "false", description: 'Compute skewness'}
+  - {name: compute_kurtosis, type: String, default: "false", description: 'Compute kurtosis'}
+  - {name: compute_missing, type: String, default: "true", description: 'Compute missing value counts'}
+  - {name: compute_missing_percent, type: String, default: "true", description: 'Compute missing percentage'}
+  - {name: compute_unique, type: String, default: "true", description: 'Compute unique value counts'}
+  - {name: compute_unique_percent, type: String, default: "true", description: 'Compute unique percentage'}
+  - {name: compute_duplicates, type: String, default: "true", description: 'Compute duplicate row counts'}
+  - {name: compute_outliers, type: String, default: "false", description: 'Compute outlier counts using IQR method'}
+
+outputs:
+  - {name: trigger_response, type: String, description: "Raw response from pipeline trigger API"}
+
+implementation:
+  container:
+    image: gurpreetgandhi/nesy-factory:vtest4
+    command:
+      - python3
+      - -u
+      - -c
+      - |
+        import argparse
+        import json
+        import os
+        import sys
+        import requests
+        import time
+
+        parser = argparse.ArgumentParser(description="Trigger data profiling pipeline")
+        parser.add_argument('--bearer_token', required=True)
+        parser.add_argument('--domain', required=True)
+        parser.add_argument('--pipeline_id', required=True)
+        parser.add_argument('--experiment_id', required=True)
+        parser.add_argument('--training_data_cdn', required=True)
+        parser.add_argument('--model_id', default="")
+        parser.add_argument('--project_id', default="")
+        parser.add_argument('--execution_id', type=int)
+        parser.add_argument('--compute_mean', default="true")
+        parser.add_argument('--compute_std', default="true")
+        parser.add_argument('--compute_min', default="true")
+        parser.add_argument('--compute_max', default="true")
+        parser.add_argument('--compute_median', default="true")
+        parser.add_argument('--compute_mode', default="false")
+        parser.add_argument('--compute_percentile_25', default="true")
+        parser.add_argument('--compute_percentile_75', default="true")
+        parser.add_argument('--compute_percentile_90', default="false")
+        parser.add_argument('--compute_percentile_95', default="false")
+        parser.add_argument('--compute_percentile_99', default="false")
+        parser.add_argument('--compute_variance', default="true")
+        parser.add_argument('--compute_range', default="true")
+        parser.add_argument('--compute_iqr', default="true")
+        parser.add_argument('--compute_skewness', default="false")
+        parser.add_argument('--compute_kurtosis', default="false")
+        parser.add_argument('--compute_missing', default="true")
+        parser.add_argument('--compute_missing_percent', default="true")
+        parser.add_argument('--compute_unique', default="true")
+        parser.add_argument('--compute_unique_percent', default="true")
+        parser.add_argument('--compute_duplicates', default="true")
+        parser.add_argument('--compute_outliers', default="false")
+        parser.add_argument('--trigger_response', required=True)
+        args = parser.parse_args()
+
+        # Read bearer token
+        with open(args.bearer_token, "r", encoding="utf-8") as f:
+            token = f.read().strip()
+
+        # Construct URL
+        url = (
+            f"{args.domain.rstrip('/')}"
+            f"/bob-service-test/v1.0/pipeline/trigger/ml"
+            f"?pipelineId={args.pipeline_id}"
+        )
+
+        # Build parameters object - only include non-empty values
+        parameters = {}
+        
+        if args.training_data_cdn:
+            parameters["training_data_cdn"] = args.training_data_cdn
+        if args.model_id:
+            parameters["model_id"] = args.model_id
+        if args.project_id:
+            parameters["project_id"] = args.project_id
+        if args.execution_id != 0:
+            parameters["execution_id"] = args.execution_id
+        
+        # Add profiling parameters
+        if args.compute_mean:
+            parameters["compute_mean"] = args.compute_mean
+        if args.compute_std:
+            parameters["compute_std"] = args.compute_std
+        if args.compute_min:
+            parameters["compute_min"] = args.compute_min
+        if args.compute_max:
+            parameters["compute_max"] = args.compute_max
+        if args.compute_median:
+            parameters["compute_median"] = args.compute_median
+        if args.compute_mode:
+            parameters["compute_mode"] = args.compute_mode
+        if args.compute_percentile_25:
+            parameters["compute_percentile_25"] = args.compute_percentile_25
+        if args.compute_percentile_75:
+            parameters["compute_percentile_75"] = args.compute_percentile_75
+        if args.compute_percentile_90:
+            parameters["compute_percentile_90"] = args.compute_percentile_90
+        if args.compute_percentile_95:
+            parameters["compute_percentile_95"] = args.compute_percentile_95
+        if args.compute_percentile_99:
+            parameters["compute_percentile_99"] = args.compute_percentile_99
+        if args.compute_variance:
+            parameters["compute_variance"] = args.compute_variance
+        if args.compute_range:
+            parameters["compute_range"] = args.compute_range
+        if args.compute_iqr:
+            parameters["compute_iqr"] = args.compute_iqr
+        if args.compute_skewness:
+            parameters["compute_skewness"] = args.compute_skewness
+        if args.compute_kurtosis:
+            parameters["compute_kurtosis"] = args.compute_kurtosis
+        if args.compute_missing:
+            parameters["compute_missing"] = args.compute_missing
+        if args.compute_missing_percent:
+            parameters["compute_missing_percent"] = args.compute_missing_percent
+        if args.compute_unique:
+            parameters["compute_unique"] = args.compute_unique
+        if args.compute_unique_percent:
+            parameters["compute_unique_percent"] = args.compute_unique_percent
+        if args.compute_duplicates:
+            parameters["compute_duplicates"] = args.compute_duplicates
+        if args.compute_outliers:
+            parameters["compute_outliers"] = args.compute_outliers
+
+        # Build payload
+        payload = {
+            "pipelineType": "ML",
+            "containerResources": {},
+            "experimentId": args.experiment_id,
+            "enableCaching": True,
+            "parameters": parameters,
+            "version": 1
+        }
+
+        # Headers
+        headers = {
+            "accept": "application/json",
+            "Authorization": f"Bearer {token}",
+            "Content-Type": "application/json"
+        }
+
+        # Print debug information
+        print(f"[DEBUG] Triggering pipeline at: {url}")
+        print(f"[DEBUG] Pipeline ID: {args.pipeline_id}")
+        print(f"[DEBUG] Experiment ID: {args.experiment_id}")
+        print(f"[DEBUG] Execution ID: {args.execution_id} (type: {type(args.execution_id).__name__})")
+        print(f"[DEBUG] Payload: {json.dumps(payload, indent=2)}")
+        
+        # Make the request with retry logic
+        max_retries = 2
+        retry_delay = 2  # seconds
+        
+        for attempt in range(max_retries):
+            try:
+                print(f"[INFO] Attempt {attempt + 1} of {max_retries}")
+                resp = requests.post(url, headers=headers, json=payload, timeout=60)
+                
+                if not resp.ok:
+                    error_detail = ""
+                    try:
+                        error_json = resp.json()
+                        error_detail = json.dumps(error_json, indent=2)
+                    except:
+                        error_detail = resp.text
+                    
+                    print(f"[ERROR] Trigger failed with status {resp.status_code}", file=sys.stderr)
+                    print(f"[ERROR] Response: {error_detail}", file=sys.stderr)
+                    
+                    if resp.status_code == 404:
+                        print("[ERROR] Pipeline not found. Please verify:", file=sys.stderr)
+                        print(f"  - Pipeline ID is correct: {args.pipeline_id}", file=sys.stderr)
+                    elif resp.status_code == 401 or resp.status_code == 403:
+                        print("[ERROR] Authentication/Authorization failed", file=sys.stderr)
+                    
+                    # If this is not the last attempt, retry
+                    if attempt < max_retries - 1:
+                        print(f"[INFO] Retrying in {retry_delay} seconds...", file=sys.stderr)
+                        time.sleep(retry_delay)
+                        continue
+                    else:
+                        resp.raise_for_status()
+
+                # Write response
+                response_text = resp.text
+                os.makedirs(os.path.dirname(args.trigger_response), exist_ok=True)
+                with open(args.trigger_response, "w", encoding="utf-8") as f:
+                    f.write(response_text)
+
+                print("[SUCCESS] Pipeline triggered successfully")
+                print(response_text)
+                break  # Success, exit the retry loop
+                
+            except requests.exceptions.RequestException as e:
+                print(f"[ERROR] Request failed: {str(e)}", file=sys.stderr)
+                
+                # If this is not the last attempt, retry
+                if attempt < max_retries - 1:
+                    print(f"[INFO] Retrying in {retry_delay} seconds...", file=sys.stderr)
+                    time.sleep(retry_delay)
+                else:
+                    # Last attempt failed, raise the exception
+                    raise
+
+    args:
+      - --bearer_token
+      - {inputPath: bearer_token}
+      - --domain
+      - {inputValue: domain}
+      - --pipeline_id
+      - {inputValue: pipeline_id}
+      - --experiment_id
+      - {inputValue: experiment_id}
+      - --training_data_cdn
+      - {inputValue: training_data_cdn}
+      - --model_id
+      - {inputValue: model_id}
+      - --project_id
+      - {inputValue: project_id}
+      - --execution_id
+      - {inputValue: execution_id}
+      - --compute_mean
+      - {inputValue: compute_mean}
+      - --compute_std
+      - {inputValue: compute_std}
+      - --compute_min
+      - {inputValue: compute_min}
+      - --compute_max
+      - {inputValue: compute_max}
+      - --compute_median
+      - {inputValue: compute_median}
+      - --compute_mode
+      - {inputValue: compute_mode}
+      - --compute_percentile_25
+      - {inputValue: compute_percentile_25}
+      - --compute_percentile_75
+      - {inputValue: compute_percentile_75}
+      - --compute_percentile_90
+      - {inputValue: compute_percentile_90}
+      - --compute_percentile_95
+      - {inputValue: compute_percentile_95}
+      - --compute_percentile_99
+      - {inputValue: compute_percentile_99}
+      - --compute_variance
+      - {inputValue: compute_variance}
+      - --compute_range
+      - {inputValue: compute_range}
+      - --compute_iqr
+      - {inputValue: compute_iqr}
+      - --compute_skewness
+      - {inputValue: compute_skewness}
+      - --compute_kurtosis
+      - {inputValue: compute_kurtosis}
+      - --compute_missing
+      - {inputValue: compute_missing}
+      - --compute_missing_percent
+      - {inputValue: compute_missing_percent}
+      - --compute_unique
+      - {inputValue: compute_unique}
+      - --compute_unique_percent
+      - {inputValue: compute_unique_percent}
+      - --compute_duplicates
+      - {inputValue: compute_duplicates}
+      - --compute_outliers
+      - {inputValue: compute_outliers}
+      - --trigger_response
+      - {outputPath: trigger_response}
